@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dewpoint import _COLOR_STOPS, dewpoint_to_color, get_dewpoint, set_govee_color
+from dewpoint import _DEWPOINT_COLORS, dewpoint_to_color, get_dewpoint, set_govee_color
 
 
 # ---------------------------------------------------------------------------
@@ -16,48 +16,40 @@ from dewpoint import _COLOR_STOPS, dewpoint_to_color, get_dewpoint, set_govee_co
 class TestDewpointToColor:
     """Verify the color mapping logic."""
 
-    def test_below_minimum_returns_blue(self):
-        assert dewpoint_to_color(-10) == (0, 0, 255)
+    def test_very_dry(self):
+        # < 50 → #0CF
+        assert dewpoint_to_color(30) == (0, 204, 255)
+        assert dewpoint_to_color(49.9) == (0, 204, 255)
 
-    def test_at_minimum_stop_returns_blue(self):
-        assert dewpoint_to_color(35) == (0, 0, 255)
+    def test_dry(self):
+        # 50 ≤ dewpoint < 56 → #0F0
+        assert dewpoint_to_color(50) == (0, 255, 0)
+        assert dewpoint_to_color(55.9) == (0, 255, 0)
 
-    def test_at_maximum_stop_returns_red(self):
-        assert dewpoint_to_color(75) == (255, 0, 0)
+    def test_comfortable(self):
+        # 56 ≤ dewpoint < 61 → #FFCC03
+        assert dewpoint_to_color(56) == (255, 204, 3)
+        assert dewpoint_to_color(60.9) == (255, 204, 3)
 
-    def test_above_maximum_returns_red(self):
-        assert dewpoint_to_color(100) == (255, 0, 0)
+    def test_humid(self):
+        # 61 ≤ dewpoint < 66 → #FE9901
+        assert dewpoint_to_color(61) == (254, 153, 1)
+        assert dewpoint_to_color(65.9) == (254, 153, 1)
 
-    def test_midpoint_between_blue_and_cyan(self):
-        # Midpoint between 35 (blue) and 50 (cyan) is 42.5
-        r, g, b = dewpoint_to_color(42.5)
-        assert r == 0
-        assert g == 128  # halfway from 0 → 255
-        assert b == 255
+    def test_muggy(self):
+        # 66 ≤ dewpoint < 71 → #FF6500
+        assert dewpoint_to_color(66) == (255, 101, 0)
+        assert dewpoint_to_color(70.9) == (255, 101, 0)
 
-    def test_midpoint_between_cyan_and_green(self):
-        # Midpoint between 50 (cyan) and 60 (green) is 55
-        r, g, b = dewpoint_to_color(55)
-        assert r == 0
-        assert g == 255
-        assert b == 128  # halfway from 255 → 0
+    def test_oppressive(self):
+        # 71 ≤ dewpoint < 76 → #FE0000
+        assert dewpoint_to_color(71) == (254, 0, 0)
+        assert dewpoint_to_color(75.9) == (254, 0, 0)
 
-    def test_midpoint_between_green_and_yellow(self):
-        # Midpoint between 60 (green) and 65 (yellow) is 62.5
-        r, g, b = dewpoint_to_color(62.5)
-        assert r == 128  # halfway from 0 → 255
-        assert g == 255
-        assert b == 0
-
-    def test_all_color_stops_match_exactly(self):
-        expected = {
-            stop[0]: (stop[1], stop[2], stop[3]) for stop in _COLOR_STOPS
-        }
-        for dewpoint_f, color in expected.items():
-            assert dewpoint_to_color(dewpoint_f) == color, (
-                f"Mismatch at {dewpoint_f} °F: expected {color}, "
-                f"got {dewpoint_to_color(dewpoint_f)}"
-            )
+    def test_miserable(self):
+        # dewpoint >= 76 → #820204
+        assert dewpoint_to_color(76) == (130, 2, 4)
+        assert dewpoint_to_color(100) == (130, 2, 4)
 
     def test_returns_tuple_of_three_ints(self):
         r, g, b = dewpoint_to_color(60)
