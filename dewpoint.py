@@ -7,11 +7,12 @@ Configuration is supplied via environment variables (or a .env file):
   LONGITUDE       - Location longitude (e.g. -71.06)
   GOVEE_API_KEY   - Govee Developer API key
   GOVEE_DEVICE_ID - Govee device ID (from Govee app)
-  GOVEE_MODEL     - Govee device model (e.g. H6159)
+  GOVEE_MODEL     - Govee device model (e.g. H6004)
 """
 
 import os
 import sys
+import uuid
 
 import requests
 from dotenv import load_dotenv
@@ -19,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-GOVEE_API_URL = "https://developer-api.govee.com/v1/devices/control"
+GOVEE_API_URL = "https://openapi.api.govee.com/router/api/v1/device/control"
 
 # Color stops: (dew_point_°F, R, G, B)
 # Below 35 °F → blue (crisp/dry); above 75 °F → red (oppressive)
@@ -84,20 +85,25 @@ def set_govee_color(
     g: int,
     b: int,
 ) -> dict:
-    """Send a color command to a Govee light via the Govee Developer API."""
+    """Send a color command to a Govee light via the Govee OpenAPI."""
     headers = {
         "Govee-API-Key": api_key,
         "Content-Type": "application/json",
     }
+    color_int = (r << 16) | (g << 8) | b
     payload = {
-        "device": device_id,
-        "model": model,
-        "cmd": {
-            "name": "color",
-            "value": {"r": r, "g": g, "b": b},
+        "requestId": str(uuid.uuid4()),
+        "payload": {
+            "sku": model,
+            "device": device_id,
+            "capability": {
+                "type": "devices.capabilities.color_setting",
+                "instance": "colorRgb",
+                "value": color_int,
+            },
         },
     }
-    response = requests.put(GOVEE_API_URL, headers=headers, json=payload, timeout=10)
+    response = requests.post(GOVEE_API_URL, headers=headers, json=payload, timeout=10)
     response.raise_for_status()
     return response.json()
 
