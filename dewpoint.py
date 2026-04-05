@@ -46,7 +46,10 @@ def get_dewpoint(latitude: float, longitude: float) -> float:
         "temperature_unit": "fahrenheit",
         "forecast_days": 1,
     }
-    response = requests.get(OPEN_METEO_URL, params=params, timeout=10)
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(max_retries=3)
+    session.mount("https://", adapter)
+    response = session.get(OPEN_METEO_URL, params=params, timeout=10)
     response.raise_for_status()
     data = response.json()
     return float(data["current"]["dew_point_2m"])
