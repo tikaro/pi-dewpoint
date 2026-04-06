@@ -1,6 +1,7 @@
 """Tests for dewpoint.py"""
 
 import json
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -79,28 +80,34 @@ class TestGetDewpoint:
         mock_resp.raise_for_status.return_value = None
         return mock_resp
 
-    @patch("dewpoint.requests.get")
-    def test_returns_dewpoint_float(self, mock_get):
-        mock_get.return_value = self._mock_response(58.3)
+    @patch("dewpoint.requests.Session")
+    def test_returns_dewpoint_float(self, mock_session_cls):
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_session.get.return_value = self._mock_response(58.3)
         result = get_dewpoint(42.36, -71.06)
         assert result == 58.3
 
-    @patch("dewpoint.requests.get")
-    def test_passes_correct_params(self, mock_get):
-        mock_get.return_value = self._mock_response(50.0)
+    @patch("dewpoint.requests.Session")
+    def test_passes_correct_params(self, mock_session_cls):
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
+        mock_session.get.return_value = self._mock_response(50.0)
         get_dewpoint(42.36, -71.06)
-        call_kwargs = mock_get.call_args
+        call_kwargs = mock_session.get.call_args
         params = call_kwargs.kwargs["params"]
         assert params["latitude"] == 42.36
         assert params["longitude"] == -71.06
         assert params["temperature_unit"] == "fahrenheit"
         assert "dew_point_2m" in params["current"]
 
-    @patch("dewpoint.requests.get")
-    def test_raises_on_http_error(self, mock_get):
+    @patch("dewpoint.requests.Session")
+    def test_raises_on_http_error(self, mock_session_cls):
+        mock_session = MagicMock()
+        mock_session_cls.return_value = mock_session
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = Exception("HTTP 500")
-        mock_get.return_value = mock_resp
+        mock_session.get.return_value = mock_resp
         with pytest.raises(Exception, match="HTTP 500"):
             get_dewpoint(0, 0)
 
@@ -111,43 +118,39 @@ class TestGetDewpoint:
 
 
 class TestSetGoveeColor:
-    """Verify the Govee API call."""
+    """Verify the Govee local LAN API (UDP) command."""
 
-    def _mock_response(self, body: dict) -> MagicMock:
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = body
-        mock_resp.raise_for_status.return_value = None
-        return mock_resp
+    def _make_mock_socket(self, mock_socket_cls):
+        mock_sock = MagicMock()
+        mock_socket_cls.return_value.__enter__.return_value = mock_sock
+        return mock_sock
 
-    @patch("dewpoint.requests.put")
-    def test_returns_api_response(self, mock_put):
-        mock_put.return_value = self._mock_response({"code": 200, "message": "Success"})
-        result = set_govee_color("key", "device-id", "H6159", 0, 255, 0)
-        assert result["code"] == 200
+    @patch("dewpoint.socket.socket")
+    def test_sends_udp_to_correct_address(self, mock_socket_cls):
+        mock_sock = self._make_mock_socket(mock_socket_cls)
+        set_govee_color("192.168.1.100", 0, 255, 0)
+        mock_sock.sendto.assert_called_once()
+        _, addr = mock_sock.sendto.call_args[0]
+        assert addr == ("192.168.1.100", 4003)
 
-    @patch("dewpoint.requests.put")
-    def test_sends_correct_payload(self, mock_put):
-        mock_put.return_value = self._mock_response({})
-        set_govee_color("my-key", "AA:BB", "H6159", 10, 20, 30)
-        call_kwargs = mock_put.call_args
-        payload = call_kwargs.kwargs["json"]
-        assert payload["device"] == "AA:BB"
-        assert payload["model"] == "H6159"
-        assert payload["cmd"]["name"] == "color"
-        assert payload["cmd"]["value"] == {"r": 10, "g": 20, "b": 30}
+    @patch("dewpoint.socket.socket")
+    def test_sends_correct_color(self, mock_socket_cls):
+        mock_sock = self._make_mock_socket(mock_socket_cls)
+        set_govee_color("192.168.1.100", 10, 20, 30)
+        payload_bytes, _ = mock_sock.sendto.call_args[0]
+        payload = json.loads(payload_bytes.decode("utf-8"))
+        assert payload["msg"]["cmd"] == "colorwc"
+        assert payload["msg"]["data"]["color"] == {"r": 10, "g": 20, "b": 30}
 
-    @patch("dewpoint.requests.put")
-    def test_sends_api_key_header(self, mock_put):
-        mock_put.return_value = self._mock_response({})
-        set_govee_color("secret-key", "AA:BB", "H6159", 0, 0, 0)
-        call_kwargs = mock_put.call_args
-        headers = call_kwargs.kwargs["headers"]
-        assert headers["Govee-API-Key"] == "secret-key"
+    @patch("dewpoint.socket.socket")
+    def test_uses_udp_socket(self, mock_socket_cls):
+        mock_sock = self._make_mock_socket(mock_socket_cls)
+        set_govee_color("192.168.1.100", 0, 0, 0)
+        mock_socket_cls.assert_called_once_with(socket.AF_INET, socket.SOCK_DGRAM)
 
-    @patch("dewpoint.requests.put")
-    def test_raises_on_http_error(self, mock_put):
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = Exception("HTTP 401")
-        mock_put.return_value = mock_resp
-        with pytest.raises(Exception, match="HTTP 401"):
-            set_govee_color("bad-key", "id", "H6159", 0, 0, 0)
+    @patch("dewpoint.socket.socket")
+    def test_raises_on_socket_error(self, mock_socket_cls):
+        mock_sock = self._make_mock_socket(mock_socket_cls)
+        mock_sock.sendto.side_effect = OSError("Network unreachable")
+        with pytest.raises(OSError, match="Network unreachable"):
+            set_govee_color("192.168.1.100", 0, 255, 0)

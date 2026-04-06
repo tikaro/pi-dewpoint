@@ -3,16 +3,15 @@ pi-dewpoint: Retrieve the current dew point from Open-Meteo and set a Govee
 light bulb to a color that reflects how humid it feels outside.
 
 Configuration is supplied via environment variables (or a .env file):
-  LATITUDE        - Location latitude  (e.g. 42.36)
-  LONGITUDE       - Location longitude (e.g. -71.06)
-  GOVEE_API_KEY   - Govee Developer API key
-  GOVEE_DEVICE_ID - Govee device ID (from Govee app)
-  GOVEE_MODEL     - Govee device model (e.g. H6004)
+  LATITUDE         - Location latitude  (e.g. 42.36)
+  LONGITUDE        - Location longitude (e.g. -71.06)
+  GOVEE_DEVICE_IP  - Local IP address of the Govee device (e.g. 192.168.1.50)
 """
 
+import json
 import os
+import socket
 import sys
-import uuid
 
 import requests
 from dotenv import load_dotenv
@@ -20,7 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-GOVEE_API_URL = "https://openapi.api.govee.com/router/api/v1/device/control"
+GOVEE_LOCAL_PORT = 4003
 
 # Dewpoint comfort categories from tikaro/sandex (sourced from WeatherSpark).
 # Each entry is (upper_exclusive_threshold_°F, R, G, B).
@@ -70,44 +69,31 @@ def dewpoint_to_color(dewpoint_f: float) -> tuple[int, int, int]:
     return (r, g, b)
 
 
-def set_govee_color(
-    api_key: str,
-    device_id: str,
-    model: str,
-    r: int,
-    g: int,
-    b: int,
-) -> dict:
-    """Send a color command to a Govee light via the Govee OpenAPI."""
-    headers = {
-        "Govee-API-Key": api_key,
-        "Content-Type": "application/json",
-    }
-    color_int = (r << 16) | (g << 8) | b
-    payload = {
-        "requestId": str(uuid.uuid4()),
-        "payload": {
-            "sku": model,
-            "device": device_id,
-            "capability": {
-                "type": "devices.capabilities.color_setting",
-                "instance": "colorRgb",
-                "value": color_int,
+def set_govee_color(device_ip: str, r: int, g: int, b: int) -> None:
+    """Send a color command to a Govee light via the local LAN API (UDP).
+
+    Requires LAN Control to be enabled in the Govee app for the device.
+    The device must be reachable at *device_ip* on the local network.
+    """
+    command = {
+        "msg": {
+            "cmd": "colorwc",
+            "data": {
+                "color": {"r": r, "g": g, "b": b},
+                "colorTemInKelvin": 0,
             },
-        },
+        }
     }
-    response = requests.post(GOVEE_API_URL, headers=headers, json=payload, timeout=10)
-    response.raise_for_status()
-    return response.json()
+    payload = json.dumps(command).encode("utf-8")
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.sendto(payload, (device_ip, GOVEE_LOCAL_PORT))
 
 
 def main() -> None:
     required_vars = (
         "LATITUDE",
         "LONGITUDE",
-        "GOVEE_API_KEY",
-        "GOVEE_DEVICE_ID",
-        "GOVEE_MODEL",
+        "GOVEE_DEVICE_IP",
     )
     missing = [v for v in required_vars if not os.environ.get(v)]
     if missing:
@@ -116,9 +102,7 @@ def main() -> None:
 
     latitude = float(os.environ["LATITUDE"])
     longitude = float(os.environ["LONGITUDE"])
-    api_key = os.environ["GOVEE_API_KEY"]
-    device_id = os.environ["GOVEE_DEVICE_ID"]
-    model = os.environ["GOVEE_MODEL"]
+    device_ip = os.environ["GOVEE_DEVICE_IP"]
 
     print(f"Fetching dew point for ({latitude}, {longitude})...")
     dewpoint = get_dewpoint(latitude, longitude)
@@ -127,7 +111,7 @@ def main() -> None:
     r, g, b = dewpoint_to_color(dewpoint)
     print(f"Setting Govee light to RGB({r}, {g}, {b})...")
 
-    set_govee_color(api_key, device_id, model, r, g, b)
+    set_govee_color(device_ip, r, g, b)
     print("Govee light updated successfully.")
 
 
