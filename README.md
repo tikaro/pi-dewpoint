@@ -16,7 +16,7 @@ Using a Raspberry Pi Zero W to set the color of a Govee light bulb to match the 
    | 70 °F | Uncomfortable | 🟠 Orange |
    | ≥ 75 °F | Oppressive | 🔴 Red |
 
-3. **Set the bulb** — sends the RGB color to the Govee light via the [Govee Developer API](https://govee-public.s3.amazonaws.com/developer-docs/GoveeAPIReference.pdf).
+3. **Set the bulb** — sends the RGB color directly to the Govee light over your local network using the [Govee LAN API](https://app-h5.govee.com/user-manual/wlan-guide) (UDP, no cloud round-trip).
 
 ## Setup
 
@@ -26,7 +26,13 @@ Using a Raspberry Pi Zero W to set the color of a Govee light bulb to match the 
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment variables
+### 2. Enable LAN Control on your Govee device
+
+Open the Govee app, go to the device settings, and enable **LAN Control**. This allows the Raspberry Pi to communicate with the bulb directly over your local network without going through Govee's cloud servers.
+
+Assign a static IP address (or a DHCP reservation) to your Govee device so that `GOVEE_DEVICE_IP` stays stable across reboots.
+
+### 3. Configure environment variables
 
 Copy `.env.example` to `.env` and fill in your values:
 
@@ -38,11 +44,9 @@ cp .env.example .env
 |----------|-------------|
 | `LATITUDE` | Latitude of the location to monitor |
 | `LONGITUDE` | Longitude of the location to monitor |
-| `GOVEE_API_KEY` | Govee Developer API key (Govee app → Profile → About Us → Apply for API Key) |
-| `GOVEE_DEVICE_ID` | Govee device ID (visible in the Govee app under device settings) |
-| `GOVEE_MODEL` | Govee device model (e.g. `H6159`) |
+| `GOVEE_DEVICE_IP` | Local IP address of the Govee device (e.g. `192.168.1.50`) |
 
-### 3. Run
+### 4. Run
 
 ```bash
 python dewpoint.py
